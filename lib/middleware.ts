@@ -6,9 +6,11 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
+  // With Fluid compute, don't put this client in a global environment
+  // variable. Always create a new one on each request.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll() {
@@ -27,21 +29,23 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Refresh session
-  const { data: { user } } = await supabase.auth.getUser()
+  // Do not run code between createServerClient and
+  // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
+  // issues with users being randomly logged out.
+
+  // IMPORTANT: If you remove getClaims() and you use server-side rendering
+  // with the Supabase client, your users may be randomly logged out.
+  const { data } = await supabase.auth.getClaims()
+  const claims = data?.claims
+  const user = claims // Assuming claims represents the user state in this pattern
 
   const pathname = request.nextUrl.pathname
 
   // Public routes — no auth required
-  const publicRoutes = ['/register', '/kiosk', '/auth', '/api/check-in']
+  const publicRoutes = ['/register', '/kiosk', '/auth', '/api/check-in', '/todos']
   const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route))
 
-  if (isPublicRoute) {
-    return supabaseResponse
-  }
-
-  // Root page is also public
-  if (pathname === '/') {
+  if (isPublicRoute || pathname === '/') {
     return supabaseResponse
   }
 
@@ -54,11 +58,12 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Check admin role
+    // Since we are using the new pattern, let's also verify the profile role
+    // if the claims don't already include it.
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
-      .eq('auth_id', user.id)
+      .eq('auth_id', user.sub) // JWT sub is usually the user ID
       .single()
 
     if (!profile || profile.role !== 'admin') {

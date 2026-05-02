@@ -4,3 +4,8 @@ node_modules
 .env.local
 .env*.local
 vercel-plugin
+
+.vercel
+.env*.local
+
+/lib/generated/prisma
