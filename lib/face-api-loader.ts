@@ -6,63 +6,63 @@ let modelsLoaded = false;
 
 /**
  * Load face-api.js models from /models/ directory.
- * Models required:
- * - tiny_face_detector (fast face detection)
- * - face_landmark_68 (facial landmarks)
- * - face_recognition (128-dim descriptor extraction)
  */
-export async function loadFaceModels(): Promise<void> {
-  if (modelsLoaded) return;
+export async function loadFaceModels(): Promise<boolean> {
+  if (modelsLoaded) return true;
 
-  const MODEL_URL = '/models';
-
-  await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-  ]);
-
-  modelsLoaded = true;
+  try {
+    const MODEL_URL = '/models';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+    ]);
+    modelsLoaded = true;
+    return true;
+  } catch (error) {
+    console.error('Failed to load face-api.js models:', error);
+    return false;
+  }
 }
 
 /**
- * Detect a single face and extract its 128-dimensional descriptor.
- * Returns null if no face is detected.
+ * Detect a face in the given video/canvas element and return its descriptor.
  */
 export async function detectFace(
-  input: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement
-): Promise<{ descriptor: Float32Array; detection: faceapi.FaceDetection } | null> {
-  const result = await faceapi
-    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
+  input: HTMLVideoElement | HTMLCanvasElement
+): Promise<Float32Array | null> {
+  try {
+    const detection = await faceapi
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.5 }))
+      .withFaceLandmarks()
+      .withFaceExpressions()
+      .withFaceDescriptor();
 
-  if (!result) return null;
-
-  return {
-    descriptor: result.descriptor,
-    detection: result.detection,
-  };
+    if (!detection) return null;
+    return detection.descriptor;
+  } catch (error) {
+    console.error('Face detection error:', error);
+    return null;
+  }
 }
 
 /**
  * Calculate Euclidean distance between two face descriptors.
- * Lower = more similar. Threshold typically 0.6.
+ * Lower = more similar. Threshold: typically 0.6
  */
-export function euclideanDistance(desc1: number[] | Float32Array, desc2: number[] | Float32Array): number {
+export function euclideanDistance(a: number[], b: Float32Array | number[]): number {
+  if (a.length !== b.length) return Infinity;
   let sum = 0;
-  for (let i = 0; i < desc1.length; i++) {
-    const diff = desc1[i] - desc2[i];
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i] - b[i];
     sum += diff * diff;
   }
   return Math.sqrt(sum);
 }
 
 /**
- * Check if face-api models have been loaded
+ * Check if face-api.js models are loaded.
  */
 export function areModelsLoaded(): boolean {
   return modelsLoaded;
 }
-
-export { faceapi };

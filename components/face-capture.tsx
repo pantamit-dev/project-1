@@ -1,63 +1,46 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, RotateCcw, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { loadFaceModels, detectFace } from '@/lib/face-api-loader';
 
 interface FaceCaptureProps {
-  onCapture: (descriptor: number[], imageDataUrl: string) => void;
-  disabled?: boolean;
+  onCapture: (descriptor: number[]) => void;
+  onError?: (error: string) => void;
 }
 
-export default function FaceCapture({ onCapture, disabled }: FaceCaptureProps) {
+export default function FaceCapture({ onCapture, onError }: FaceCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [modelsReady, setModelsReady] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [capturing, setCapturing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [captured, setCaptured] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [faceDetected, setFaceDetected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'scanning' | 'success' | 'error'>('loading');
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectionInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Load models and start camera
+  // Initialize camera and load models
   useEffect(() => {
     let mounted = true;
-
     async function init() {
       try {
-        setLoading(true);
-        setError(null);
-
-        // Load face-api models
-        await loadFaceModels();
-        if (mounted) setModelsReady(true);
-
-        // Start camera
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-          },
-        });
-
-        if (mounted && videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          setStream(mediaStream);
+        const [modelsOk] = await Promise.all([
+          loadFaceModels(),
+          startCamera(),
+        ]);
+        if (mounted && modelsOk) {
+          setIsLoading(false);
+          setStatus('ready');
         }
       } catch (err) {
         if (mounted) {
-          if (err instanceof DOMException && err.name === 'NotAllowedError') {
-            setError('กรุณาอนุญาตการเข้าถึงกล้อง');
-          } else {
-            setError('ไม่สามารถเริ่มกล้องได้ กรุณาตรวจสอบการเชื่อมต่อ');
-          }
+          setIsLoading(false);
+          setStatus('error');
+          onError?.('ไม่สามารถเปิดกล้องหรือโหลดโมเดลได้');
         }
-      } finally {
-        if (mounted) setLoading(false);
       }
     }
 
@@ -65,225 +48,230 @@ export default function FaceCapture({ onCapture, disabled }: FaceCaptureProps) {
 
     return () => {
       mounted = false;
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
-      }
+      stopCamera();
+      if (detectionInterval.current) clearInterval(detectionInterval.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup stream on unmount
+  // Real-time face detection indicator
   useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+    if (!isCameraReady || isLoading || captured) return;
+
+    detectionInterval.current = setInterval(async () => {
+      if (videoRef.current) {
+        const descriptor = await detectFace(videoRef.current);
+        setFaceDetected(!!descriptor);
       }
-    };
-  }, [stream]);
-
-  // Continuous face detection for real-time feedback
-  useEffect(() => {
-    if (!modelsReady || !videoRef.current || captured) return;
-
-    detectionIntervalRef.current = setInterval(async () => {
-      if (!videoRef.current || videoRef.current.readyState !== 4) return;
-      const result = await detectFace(videoRef.current);
-      setFaceDetected(!!result);
     }, 500);
 
     return () => {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
-      }
+      if (detectionInterval.current) clearInterval(detectionInterval.current);
     };
-  }, [modelsReady, captured]);
+  }, [isCameraReady, isLoading, captured]);
 
-  // Capture face
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setIsCameraReady(true);
+      }
+    } catch (err) {
+      throw new Error('Camera access denied');
+    }
+  }
+
+  function stopCamera() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }
+
   const handleCapture = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
-
-    setCapturing(true);
-    setError(null);
+    if (!videoRef.current || isCapturing) return;
+    setIsCapturing(true);
+    setStatus('scanning');
 
     try {
-      const result = await detectFace(videoRef.current);
-
-      if (!result) {
-        setError('ไม่พบใบหน้า กรุณาให้ใบหน้าอยู่ในกรอบ');
-        setCapturing(false);
+      const descriptor = await detectFace(videoRef.current);
+      if (!descriptor) {
+        setStatus('ready');
+        setIsCapturing(false);
+        onError?.('ไม่พบใบหน้า กรุณาหันหน้าเข้ากล้อง');
         return;
       }
 
       // Draw captured frame to canvas
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(video, 0, 0);
-
-      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      const descriptorArray = Array.from(result.descriptor);
+      if (canvasRef.current && videoRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
+        ctx?.drawImage(videoRef.current, 0, 0);
+      }
 
       setCaptured(true);
-      setCapturedImage(imageDataUrl);
+      setStatus('success');
+      stopCamera();
+      if (detectionInterval.current) clearInterval(detectionInterval.current);
 
-      // Stop camera
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-
-      onCapture(descriptorArray, imageDataUrl);
-    } catch {
-      setError('เกิดข้อผิดพลาดในการถ่ายภาพ กรุณาลองอีกครั้ง');
+      onCapture(Array.from(descriptor));
+    } catch (err) {
+      setStatus('error');
+      onError?.('เกิดข้อผิดพลาดในการสแกนใบหน้า');
     } finally {
-      setCapturing(false);
+      setIsCapturing(false);
     }
-  }, [modelsReady, onCapture, stream]);
+  }, [isCapturing, onCapture, onError]);
 
-  // Reset capture
   const handleReset = useCallback(async () => {
     setCaptured(false);
-    setCapturedImage(null);
     setFaceDetected(false);
-    setError(null);
+    setStatus('loading');
+    setIsLoading(true);
+    setIsCameraReady(false);
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        setStream(mediaStream);
-      }
+      await startCamera();
+      setIsLoading(false);
+      setStatus('ready');
     } catch {
-      setError('ไม่สามารถเริ่มกล้องได้');
+      setStatus('error');
+      setIsLoading(false);
     }
   }, []);
 
+  const statusColors = {
+    loading: 'var(--on-surface-variant)',
+    ready: faceDetected ? 'var(--success-green)' : 'var(--biometric-active)',
+    scanning: 'var(--biometric-active)',
+    success: 'var(--success-green)',
+    error: 'var(--error-red)',
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Camera Preview */}
-      <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-[var(--surface-container-highest)]">
-        {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-            <Loader2 className="w-8 h-8 text-[var(--primary)] animate-spin" />
-            <p className="text-sm text-[var(--on-surface-variant)]">กำลังเตรียมกล้อง...</p>
-          </div>
-        )}
-
-        {captured && capturedImage ? (
-          <img src={capturedImage} alt="Captured face" className="w-full h-full object-cover" />
-        ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover mirror"
-            style={{ transform: 'scaleX(-1)' }}
-            onLoadedData={() => setLoading(false)}
-          />
-        )}
-
-        {/* Face detection indicator */}
-        {!loading && !captured && (
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Center guide frame */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div
-                className={`w-48 h-60 rounded-[50%] border-2 transition-colors duration-300 ${
-                  faceDetected ? 'border-[var(--success)]' : 'border-white/50'
-                }`}
-                style={{
-                  boxShadow: faceDetected
-                    ? '0 0 20px rgba(46, 125, 50, 0.3), inset 0 0 20px rgba(46, 125, 50, 0.1)'
-                    : '0 0 20px rgba(255, 255, 255, 0.1)',
-                }}
-              />
-            </div>
-
-            {/* Scanning line */}
-            {!faceDetected && (
-              <div className="absolute left-1/2 -translate-x-1/2 w-48 h-0.5 bg-[var(--biometric-active)] animate-scan-line opacity-60" />
-            )}
-          </div>
-        )}
-
-        {/* Status badge */}
-        {!loading && !captured && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
-            <div
-              className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 ${
-                faceDetected
-                  ? 'bg-[var(--success)]/90 text-white'
-                  : 'bg-black/60 text-white/80'
-              }`}
+    <div className="flex flex-col items-center gap-4">
+      {/* Camera / Canvas Preview */}
+      <div className="relative w-full max-w-sm aspect-[4/3] rounded-2xl overflow-hidden" style={{ background: 'var(--inverse-surface)' }}>
+        <AnimatePresence mode="wait">
+          {isLoading && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
             >
-              {faceDetected ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  ตรวจพบใบหน้า
-                </>
-              ) : (
-                <>
-                  <Camera className="w-3.5 h-3.5" />
-                  กำลังค้นหาใบหน้า...
-                </>
-              )}
-            </div>
+              <Loader2 className="w-8 h-8 animate-spin text-white" />
+              <span className="text-sm text-white/70">กำลังเตรียมกล้อง...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <video
+          ref={videoRef}
+          className={`w-full h-full object-cover ${captured ? 'hidden' : ''}`}
+          autoPlay
+          playsInline
+          muted
+        />
+        <canvas
+          ref={canvasRef}
+          className={`w-full h-full object-cover ${!captured ? 'hidden' : ''}`}
+        />
+
+        {/* Face detection frame overlay */}
+        {!isLoading && !captured && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <motion.div
+              className="w-48 h-56 rounded-2xl border-2"
+              animate={{
+                borderColor: faceDetected ? 'var(--success-green)' : 'var(--biometric-active)',
+                boxShadow: faceDetected
+                  ? '0 0 20px rgba(46, 125, 50, 0.4)'
+                  : '0 0 20px rgba(66, 133, 244, 0.3)',
+              }}
+              transition={{ duration: 0.3 }}
+            />
           </div>
         )}
 
-        {captured && (
-          <div className="absolute top-3 right-3">
-            <div className="px-3 py-1.5 rounded-full text-xs font-medium bg-[var(--success)] text-white flex items-center gap-1.5 animate-success-pop">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              บันทึกใบหน้าสำเร็จ
-            </div>
+        {/* Scanning animation */}
+        {status === 'scanning' && (
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute left-0 right-0 h-0.5 animate-scan-line" style={{ background: 'var(--biometric-active)', boxShadow: '0 0 10px var(--biometric-active)' }} />
           </div>
+        )}
+
+        {/* Success overlay */}
+        {status === 'success' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ background: 'rgba(46, 125, 50, 0.2)' }}
+          >
+            <div className="flex flex-col items-center gap-2 text-white">
+              <CheckCircle2 className="w-12 h-12" style={{ color: 'var(--success-green)' }} />
+              <span className="font-semibold text-sm">สแกนสำเร็จ!</span>
+            </div>
+          </motion.div>
         )}
       </div>
 
-      {/* Hidden canvas for capture */}
-      <canvas ref={canvasRef} className="hidden" />
-
-      {/* Error message */}
-      {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'var(--error-container)', color: 'var(--on-error-container)' }}>
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span className="text-sm">{error}</span>
-        </div>
-      )}
+      {/* Status indicator */}
+      <div className="flex items-center gap-2 text-sm">
+        <div className="w-2 h-2 rounded-full" style={{ background: statusColors[status] }} />
+        <span style={{ color: 'var(--on-surface-variant)' }}>
+          {status === 'loading' && 'กำลังโหลดโมเดล AI...'}
+          {status === 'ready' && (faceDetected ? '✓ ตรวจพบใบหน้า — พร้อมสแกน' : 'หันหน้าเข้ากล้อง')}
+          {status === 'scanning' && 'กำลังสแกนใบหน้า...'}
+          {status === 'success' && 'สแกนเรียบร้อย!'}
+          {status === 'error' && 'เกิดข้อผิดพลาด'}
+        </span>
+      </div>
 
       {/* Action buttons */}
       <div className="flex gap-3">
         {!captured ? (
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleCapture}
-            disabled={!faceDetected || capturing || disabled || loading}
-            className="flex-1 py-3 px-4 rounded-xl text-white font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-lg"
+            disabled={isLoading || isCapturing || !isCameraReady}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             style={{
-              background: faceDetected && !capturing ? 'linear-gradient(135deg, #005EB8, #4285F4)' : 'var(--outline)',
+              background: faceDetected ? 'var(--success-green)' : 'var(--primary)',
+              color: 'white',
             }}
           >
-            {capturing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
+            {isCapturing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Camera className="w-5 h-5" />
+              <Camera className="w-4 h-4" />
             )}
-            {capturing ? 'กำลังบันทึก...' : 'ถ่ายภาพใบหน้า'}
-          </button>
+            {isCapturing ? 'กำลังสแกน...' : 'ถ่ายรูปใบหน้า'}
+          </motion.button>
         ) : (
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleReset}
-            disabled={disabled}
-            className="flex-1 py-3 px-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all hover:shadow-md border"
-            style={{ borderColor: 'var(--outline-variant)', color: 'var(--primary)' }}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all"
+            style={{
+              background: 'var(--surface-container)',
+              color: 'var(--on-surface)',
+              border: '1px solid var(--outline-variant)',
+            }}
           >
-            <RotateCcw className="w-5 h-5" />
+            <RotateCcw className="w-4 h-4" />
             ถ่ายใหม่
-          </button>
+          </motion.button>
         )}
       </div>
     </div>

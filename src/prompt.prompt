@@ -1,0 +1,111 @@
+System Role:
+Act as an expert Full-Stack PHP Developer specializing in Modern PHP 8.x (OOP & MVC architecture), MySQL (via XAMPP/phpMyAdmin), and Vanilla JavaScript (ES6+).
+
+Project Overview:
+Build an "AI Facial Recognition Check-in System" with a robust Admin Back-office. The system includes mobile self-registration, a webcam-based check-in kiosk, and a comprehensive management dashboard for administrators. The code must be production-ready, highly organized using an MVC directory structure, and easy to maintain.
+
+Directory Structure Requirement:
+Organize the project cleanly:
+
+/config (Database connection using PDO)
+
+/models (Database logic and queries)
+
+/controllers (Business logic)
+
+/views (UI / HTML / PHP templates)
+
+/api (Endpoints for frontend to fetch/post data as JSON)
+
+/assets (CSS, JS, Images, face-api.js models)
+
+1. Database & Security (MySQL on XAMPP):
+
+Database Name: ai_checkin_db
+
+Tables:
+
+users: Store user info (id, name, student_id, face_descriptor [JSON], role [user/admin], status [pending/approved]).
+
+check_ins: Store logs (id, user_id, session_id [1,2,3], scan_time, status).
+
+Security:
+
+Use PDO with Prepared Statements strictly to prevent SQL Injection.
+
+Implement PHP Session-based Authentication ($_SESSION).
+
+Only users with role: 'admin' can access files in the Admin Dashboard area.
+
+2. Admin Back-office System:
+Create a Sidebar-based Admin Layout containing:
+
+A. Dashboard Overview (The Nerve Center):
+
+Live Stats Cards: Total Users, Present Today, Active Session Status.
+
+Visual Indicators: Real-time counter for each of the 3 sessions.
+
+Session Status Timeline: Highlight the current active time slot (08:00-12:00, 13:00-16:00, 17:00-22:00).
+
+B. Real-time Monitoring Board:
+
+A "Live Stream" of check-in events. Use JavaScript (Fetch API / AJAX Polling or Server-Sent Events) to ping the /api/get_live_checkins.php endpoint so new scans pop up at the top without reloading the page.
+
+C. User Management (Back-office):
+
+User List: A table to view all registered users fetching data from the users model.
+
+Approval System: Admin can toggle user status via AJAX.
+
+Manual Check-in: Admin can manually insert a check-in record.
+
+Search & Filter: Find users by ID or Name (implement using SQL LIKE).
+
+D. Check-in Reports & Logs:
+
+A detailed log history searchable by Date and Session.
+
+Export Data: Generate a CSV file using PHP fputcsv() for attendance records.
+
+3. Check-in Kiosk & Logic:
+
+Webcam Interface: Implement face-api.js on the frontend (/views/kiosk.php) for real-time face scanning and descriptor extraction.
+
+Business Logic (in Controller/API):
+
+Compare the captured face descriptor with the JSON descriptors stored in the MySQL database.
+
+Validate current server time (date('H:i')) against the 3 sessions.
+
+Prevent duplicate scans in the same session using SQL constraints or pre-check queries.
+
+Display UI feedback via JS SweetAlert or Toasts: "Scan Successful" or "Error: Already Scanned".
+
+4. Tech Stack Details:
+
+Backend: PHP 8.x (OOP/MVC).
+
+Database: MySQL (MariaDB on XAMPP) using PDO.
+
+Frontend UI: TailwindCSS (via CDN) + standard HTML5.
+
+Icons: FontAwesome or Heroicons.
+
+Charts: Chart.js (for the Dashboard Overview).
+
+AI Face Recognition: face-api.js (Client-side processing).
+
+Step-by-Step Instructions:
+
+Provide the schema.sql file to create the database and tables in phpMyAdmin.
+
+Write the config/database.php using PDO.
+
+Build the MVC structure for User Management (Model, Controller, View with CRUD operations).
+
+Develop the Live Overview board using JS Fetch API polling a PHP endpoint.
+
+Create the Logic for the 3-session check-in and duplicate prevention.
+
+Ensure all Admin pages check for $_SESSION['admin'] and redirect unauthorized users

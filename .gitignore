@@ -1,11 +1,10 @@
 node_modules
-.vercel
 .next
+.vercel
 .env.local
 .env*.local
 vercel-plugin
+/lib/generated/prisma
 
 .vercel
 .env*.local
-
-/lib/generated/prisma

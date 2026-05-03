@@ -1,166 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getCurrentSession } from '@/lib/session-utils';
-import type { CheckInResult, Profile } from '@/lib/types/database';
 
-/**
- * Euclidean distance between two face descriptors.
- */
 function euclideanDistance(a: number[], b: number[]): number {
+  if (a.length !== b.length) return Infinity;
   let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i];
-    sum += diff * diff;
-  }
+  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
   return Math.sqrt(sum);
 }
 
-const MATCH_THRESHOLD = 0.6;
-
-export async function POST(request: NextRequest): Promise<NextResponse<CheckInResult>> {
+export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { descriptor } = body as { descriptor: number[] };
-
-    if (!descriptor || !Array.isArray(descriptor) || descriptor.length !== 128) {
-      return NextResponse.json({
-        success: false,
-        type: 'error',
-        message: 'Invalid face descriptor',
-      }, { status: 400 });
-    }
-
-    // 1. Check current session
-    const currentSession = getCurrentSession();
-    if (!currentSession) {
-      return NextResponse.json({
-        success: false,
-        type: 'no_session',
-        message: 'ไม่อยู่ในช่วงเวลาเข้างาน',
-        session: undefined,
-      });
-    }
-
-    // 2. Fetch all approved profiles with face descriptors
+    const { descriptor } = await request.json();
+    if (!descriptor || !Array.isArray(descriptor)) return NextResponse.json({ success:false, message:'Missing face descriptor' }, { status:400 });
+    const session = getCurrentSession();
+    if (!session) return NextResponse.json({ success:false, message:'ไม่อยู่ในช่วงเวลาลงเวลา' }, { status:400 });
     const supabase = createAdminClient();
-
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('status', 'approved')
-      .not('face_descriptor', 'is', null);
-
-    if (profilesError) {
-      console.error('Error fetching profiles:', profilesError);
-      return NextResponse.json({
-        success: false,
-        type: 'error',
-        message: 'เกิดข้อผิดพลาดในการค้นหาข้อมูล',
-      }, { status: 500 });
+    const { data:users } = await supabase.from('profiles').select('*').eq('status','approved');
+    if (!users || users.length === 0) return NextResponse.json({ success:false, message:'ไม่พบผู้ใช้ในระบบ' }, { status:404 });
+    let bestMatch = null;
+    let bestDist = Infinity;
+    for (const user of users) {
+      if (!user.face_descriptor) continue;
+      const dist = euclideanDistance(user.face_descriptor, descriptor);
+      if (dist < bestDist) { bestDist = dist; bestMatch = user; }
     }
-
-    if (!profiles || profiles.length === 0) {
-      return NextResponse.json({
-        success: false,
-        type: 'no_match',
-        message: 'ไม่พบผู้ใช้ที่ลงทะเบียนในระบบ',
-      });
-    }
-
-    // 3. Find best match
-    let bestMatch: Profile | null = null;
-    let bestDistance = Infinity;
-
-    for (const profile of profiles) {
-      const storedDescriptor = profile.face_descriptor as number[];
-      if (!storedDescriptor || storedDescriptor.length !== 128) continue;
-
-      const distance = euclideanDistance(descriptor, storedDescriptor);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestMatch = profile as Profile;
-      }
-    }
-
-    if (!bestMatch || bestDistance > MATCH_THRESHOLD) {
-      return NextResponse.json({
-        success: false,
-        type: 'no_match',
-        message: 'ไม่พบใบหน้าในระบบ กรุณาลงทะเบียนก่อน',
-      });
-    }
-
-    // 4. Check for duplicate scan today in this session
-    const today = new Date().toISOString().split('T')[0];
-
-    const { data: existingCheckIn } = await supabase
-      .from('check_ins')
-      .select('id')
-      .eq('user_id', bestMatch.id)
-      .eq('session_number', currentSession.id)
-      .eq('status', 'success')
-      .gte('scan_time', `${today}T00:00:00`)
-      .lte('scan_time', `${today}T23:59:59`)
-      .maybeSingle();
-
-    if (existingCheckIn) {
-      // Record the duplicate attempt
-      await supabase.from('check_ins').insert({
-        user_id: bestMatch.id,
-        session_number: currentSession.id,
-        status: 'duplicate',
-      });
-
-      return NextResponse.json({
-        success: false,
-        type: 'duplicate',
-        message: `${bestMatch.full_name} ได้ลงเวลาในรอบนี้แล้ว`,
-        user: bestMatch,
-        session: currentSession,
-      });
-    }
-
-    // 5. Insert successful check-in
-    const { error: insertError } = await supabase.from('check_ins').insert({
-      user_id: bestMatch.id,
-      session_number: currentSession.id,
-      status: 'success',
-    });
-
-    if (insertError) {
-      // Handle unique constraint violation (race condition)
-      if (insertError.code === '23505') {
-        return NextResponse.json({
-          success: false,
-          type: 'duplicate',
-          message: `${bestMatch.full_name} ได้ลงเวลาในรอบนี้แล้ว`,
-          user: bestMatch,
-          session: currentSession,
-        });
-      }
-
-      console.error('Error inserting check-in:', insertError);
-      return NextResponse.json({
-        success: false,
-        type: 'error',
-        message: 'เกิดข้อผิดพลาดในการบันทึก',
-      }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      type: 'success',
-      message: `สแกนสำเร็จ — ${bestMatch.full_name}`,
-      user: bestMatch,
-      session: currentSession,
-    });
-
-  } catch (error) {
-    console.error('Check-in API error:', error);
-    return NextResponse.json({
-      success: false,
-      type: 'error',
-      message: 'เกิดข้อผิดพลาดภายในระบบ',
-    }, { status: 500 });
+    if (!bestMatch || bestDist > 0.6) return NextResponse.json({ success:false, message:'ไม่พบข้อมูลใบหน้า' }, { status:404 });
+    const today = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
+    const { data:existing } = await supabase.from('check_ins').select('id').eq('user_id',bestMatch.id).eq('session_number',session.id).gte('scan_time',today.toISOString()).lt('scan_time',tomorrow.toISOString());
+    if (existing && existing.length > 0) return NextResponse.json({ success:false, message:`${bestMatch.name} ลงเวลา${session.labelTh}แล้ว`, duplicate:true });
+    const { error } = await supabase.from('check_ins').insert({ user_id:bestMatch.id, session_number:session.id, scan_time:new Date().toISOString(), status:'success' });
+    if (error) return NextResponse.json({ success:false, message:'บันทึกไม่สำเร็จ' }, { status:500 });
+    return NextResponse.json({ success:true, message:`${bestMatch.name} ลงเวลาสำเร็จ!`, user:{ name:bestMatch.name, employee_id:bestMatch.employee_id }, session });
+  } catch (err) {
+    return NextResponse.json({ success:false, message:'Server error' }, { status:500 });
   }
 }

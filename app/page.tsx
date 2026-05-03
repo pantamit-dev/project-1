@@ -1,96 +1,229 @@
+'use client';
+
 import Link from 'next/link';
-import { Scan, UserPlus, LayoutDashboard, Shield, Clock, Users } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Scan, UserPlus, LayoutDashboard, Shield, Clock, Users, ChevronRight, Fingerprint } from 'lucide-react';
+
+const fadeInUp = {
+  initial: { opacity: 0, y: 30 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] },
+};
+
+const staggerContainer = {
+  animate: { transition: { staggerChildren: 0.15 } },
+};
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #f9f9ff 0%, #d6e3ff 50%, #c9e3fa 100%)' }}>
-      {/* Hero Section */}
-      <div className="max-w-5xl mx-auto px-4 pt-16 pb-12">
-        <div className="text-center mb-12 animate-fade-in">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-6" style={{ background: 'linear-gradient(135deg, #005EB8, #4285F4)', boxShadow: '0 8px 32px rgba(0, 94, 184, 0.3)' }}>
-            <Scan className="w-10 h-10 text-white" />
+    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #f9f9ff 0%, #e7e8f0 50%, #d6e3ff 100%)' }}>
+      {/* Navigation */}
+      <nav className="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+              <Fingerprint className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-lg font-bold" style={{ color: 'var(--on-surface)' }}>
+              FaceScan
+            </span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold text-[var(--on-surface)] mb-3">
-            AI Face Scan
-          </h1>
-          <p className="text-lg text-[var(--on-surface-variant)] max-w-lg mx-auto">
-            ระบบลงเวลาเข้างานด้วยใบหน้า AI — สะดวก รวดเร็ว ปลอดภัย
-          </p>
+          <Link
+            href="/auth/login"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all hover:shadow-lg"
+            style={{
+              background: 'var(--primary)',
+              color: 'var(--on-primary)',
+            }}
+          >
+            <Shield className="w-4 h-4" />
+            เข้าสู่ระบบ Admin
+          </Link>
         </div>
+      </nav>
 
-        {/* Feature Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          {[
-            {
-              href: '/register',
-              icon: UserPlus,
-              title: 'ลงทะเบียนใหม่',
-              titleEn: 'Self Registration',
-              description: 'ลงทะเบียนด้วยตนเองพร้อมบันทึกใบหน้า',
-              gradient: 'linear-gradient(135deg, #005EB8, #4285F4)',
-              bg: '#d6e3ff',
-            },
-            {
-              href: '/kiosk',
-              icon: Scan,
-              title: 'จุดสแกนเข้างาน',
-              titleEn: 'Kiosk Scanner',
-              description: 'สแกนใบหน้าเพื่อลงเวลาเข้างานอัตโนมัติ',
-              gradient: 'linear-gradient(135deg, #2E7D32, #4CAF50)',
-              bg: '#E8F5E9',
-            },
-            {
-              href: '/admin',
-              icon: LayoutDashboard,
-              title: 'แดชบอร์ดผู้ดูแล',
-              titleEn: 'Admin Dashboard',
-              description: 'ตรวจสอบ จัดการผู้ใช้ และดูรายงาน',
-              gradient: 'linear-gradient(135deg, #534062, #6c587b)',
-              bg: '#ead1fa',
-            },
-          ].map((card) => (
-            <Link
-              key={card.href}
-              href={card.href}
-              className="group glass-card p-6 transition-all hover:shadow-lg hover:-translate-y-1"
+      {/* Hero Section */}
+      <motion.section
+        className="pt-32 pb-16 px-6"
+        initial="initial"
+        animate="animate"
+        variants={staggerContainer}
+      >
+        <div className="max-w-6xl mx-auto text-center">
+          <motion.div variants={fadeInUp} className="mb-6">
+            <span
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium"
+              style={{
+                background: 'var(--primary-fixed)',
+                color: 'var(--on-primary-fixed)',
+              }}
             >
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
-                style={{ background: card.bg }}
-              >
-                <card.icon className="w-6 h-6" style={{ color: card.gradient.includes('#005EB8') ? '#005EB8' : card.gradient.includes('#2E7D32') ? '#2E7D32' : '#534062' }} />
-              </div>
-              <h3 className="text-lg font-bold text-[var(--on-surface)] mb-0.5">{card.title}</h3>
-              <p className="text-xs text-[var(--primary)] font-medium mb-2">{card.titleEn}</p>
-              <p className="text-sm text-[var(--on-surface-variant)]">{card.description}</p>
-            </Link>
-          ))}
-        </div>
+              <Scan className="w-4 h-4" />
+              AI Facial Recognition Technology
+            </span>
+          </motion.div>
 
-        {/* Features */}
-        <div className="glass-card p-8">
-          <h2 className="text-xl font-bold text-[var(--on-surface)] text-center mb-8">คุณสมบัติหลัก</h2>
+          <motion.h1
+            variants={fadeInUp}
+            className="text-4xl md:text-6xl font-bold mb-6 leading-tight"
+            style={{ color: 'var(--on-surface)' }}
+          >
+            ระบบลงเวลา
+            <br />
+            <span style={{ color: 'var(--primary)' }}>ด้วยใบหน้า AI</span>
+          </motion.h1>
+
+          <motion.p
+            variants={fadeInUp}
+            className="text-lg md:text-xl max-w-2xl mx-auto mb-12"
+            style={{ color: 'var(--on-surface-variant)' }}
+          >
+            ระบบลงเวลาเข้า-ออกงานด้วยเทคโนโลยีจดจำใบหน้า AI
+            รวดเร็ว แม่นยำ ปลอดภัย พร้อมแดชบอร์ดสำหรับผู้ดูแลระบบ
+          </motion.p>
+
+          <motion.div
+            variants={fadeInUp}
+            className="flex flex-col sm:flex-row gap-4 justify-center"
+          >
+            <Link
+              href="/register"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold transition-all hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+              style={{
+                background: 'linear-gradient(135deg, var(--primary), var(--primary-container))',
+                color: 'var(--on-primary)',
+              }}
+            >
+              <UserPlus className="w-5 h-5" />
+              ลงทะเบียนพนักงาน
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/kiosk"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold transition-all hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+              style={{
+                background: 'var(--surface-container-lowest)',
+                color: 'var(--primary)',
+                border: '2px solid var(--outline-variant)',
+              }}
+            >
+              <Scan className="w-5 h-5" />
+              เปิดตู้สแกนใบหน้า
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </motion.div>
+        </div>
+      </motion.section>
+
+      {/* Feature Cards */}
+      <motion.section
+        className="py-16 px-6"
+        initial="initial"
+        whileInView="animate"
+        viewport={{ once: true, margin: "-100px" }}
+        variants={staggerContainer}
+      >
+        <div className="max-w-6xl mx-auto">
+          <motion.h2
+            variants={fadeInUp}
+            className="text-2xl md:text-3xl font-bold text-center mb-12"
+            style={{ color: 'var(--on-surface)' }}
+          >
+            ฟีเจอร์หลัก
+          </motion.h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              { icon: Shield, title: 'ปลอดภัยด้วย AI', desc: 'จดจำใบหน้าด้วย AI ป้องกันการปลอมแปลง' },
-              { icon: Clock, title: '3 รอบเวลาอัตโนมัติ', desc: 'ระบบตรวจสอบรอบเวลาและป้องกันสแกนซ้ำ' },
-              { icon: Users, title: 'จัดการง่าย', desc: 'แดชบอร์ดแบบเรียลไทม์พร้อมส่งออกรายงาน' },
-            ].map((feat) => (
-              <div key={feat.title} className="text-center">
-                <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'var(--primary-fixed)' }}>
-                  <feat.icon className="w-5 h-5 text-[var(--primary)]" />
-                </div>
-                <h3 className="text-sm font-bold text-[var(--on-surface)] mb-1">{feat.title}</h3>
-                <p className="text-xs text-[var(--on-surface-variant)]">{feat.desc}</p>
-              </div>
+              {
+                icon: UserPlus,
+                title: 'ลงทะเบียนผู้ใช้',
+                desc: 'ลงทะเบียนด้วยมือถือ ถ่ายรูปใบหน้าเพื่อสร้าง Face ID ส่วนตัว',
+                href: '/register',
+                color: 'var(--primary)',
+                bg: 'var(--primary-fixed)',
+              },
+              {
+                icon: Scan,
+                title: 'ตู้สแกนเข้างาน',
+                desc: 'สแกนใบหน้าอัตโนมัติ ลงเวลาใน 3 รอบต่อวัน ป้องกันสแกนซ้ำ',
+                href: '/kiosk',
+                color: 'var(--success-green)',
+                bg: '#e8f5e9',
+              },
+              {
+                icon: LayoutDashboard,
+                title: 'แดชบอร์ด Admin',
+                desc: 'ดูสถิติ ติดตามแบบ real-time จัดการผู้ใช้ และส่งออกรายงาน',
+                href: '/admin',
+                color: 'var(--tertiary)',
+                bg: 'var(--tertiary-fixed)',
+              },
+            ].map((feature, i) => (
+              <motion.div key={i} variants={fadeInUp}>
+                <Link
+                  href={feature.href}
+                  className="block p-6 rounded-2xl transition-all hover:shadow-xl hover:-translate-y-1 h-full"
+                  style={{
+                    background: 'var(--surface-container-lowest)',
+                    border: '1px solid var(--outline-variant)',
+                  }}
+                >
+                  <div
+                    className="w-14 h-14 rounded-xl flex items-center justify-center mb-4"
+                    style={{ background: feature.bg }}
+                  >
+                    <feature.icon className="w-7 h-7" style={{ color: feature.color }} />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--on-surface)' }}>
+                    {feature.title}
+                  </h3>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--on-surface-variant)' }}>
+                    {feature.desc}
+                  </p>
+                </Link>
+              </motion.div>
             ))}
           </div>
         </div>
-      </div>
+      </motion.section>
+
+      {/* Key Features Grid */}
+      <motion.section
+        className="py-16 px-6"
+        initial="initial"
+        whileInView="animate"
+        viewport={{ once: true }}
+        variants={staggerContainer}
+      >
+        <div className="max-w-6xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {[
+              { icon: Scan, label: 'จดจำใบหน้า AI', value: 'Face API' },
+              { icon: Clock, label: '3 รอบเวลา', value: 'เช้า/บ่าย/เย็น' },
+              { icon: Shield, label: 'ป้องกันซ้ำ', value: 'Duplicate Check' },
+              { icon: Users, label: 'จัดการผู้ใช้', value: 'Admin Panel' },
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                variants={fadeInUp}
+                className="text-center p-6 rounded-xl"
+                style={{ background: 'rgba(255,255,255,0.6)', border: '1px solid var(--outline-variant)' }}
+              >
+                <item.icon className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--primary)' }} />
+                <div className="font-bold text-sm" style={{ color: 'var(--on-surface)' }}>
+                  {item.label}
+                </div>
+                <div className="text-xs mt-1" style={{ color: 'var(--on-surface-variant)' }}>
+                  {item.value}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </motion.section>
 
       {/* Footer */}
-      <footer className="text-center py-6">
-        <p className="text-xs text-[var(--on-surface-variant)]">© 2026 AI Face Scan Check-in System — Powered by Next.js, Supabase & Vercel</p>
+      <footer className="py-8 px-6 text-center text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+        <p>© 2026 AI Face Scan Check-in System. Powered by face-api.js & Supabase.</p>
       </footer>
     </div>
   );

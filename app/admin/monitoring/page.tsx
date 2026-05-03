@@ -1,198 +1,67 @@
 'use client';
-
-import { useEffect, useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/client';
-import { formatScanTime, getSessionById } from '@/lib/session-utils';
-import type { CheckIn, Profile } from '@/lib/types/database';
-import { Activity, CheckCircle2, AlertTriangle, XCircle, Wifi, Users, Clock } from 'lucide-react';
-
-interface LiveEvent {
-  checkIn: CheckIn;
-  profile: Profile | null;
-  timestamp: string;
-}
+import { getSessionById, formatScanTime } from '@/lib/session-utils';
+import { Activity, Wifi, WifiOff, CheckCircle2 } from 'lucide-react';
+import type { CheckIn } from '@/lib/types/database';
 
 export default function MonitoringPage() {
-  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [events, setEvents] = useState<CheckIn[]>([]);
   const [connected, setConnected] = useState(false);
-  const [todayCount, setTodayCount] = useState(0);
-  const feedRef = useRef<HTMLDivElement>(null);
+  const supabase = createClient();
 
   useEffect(() => {
-    const supabase = createClient();
-    const today = new Date().toISOString().split('T')[0];
-
-    // Fetch existing today's check-ins
-    async function fetchExisting() {
-      const { data: checkIns } = await supabase
-        .from('check_ins')
-        .select('*, profiles(*)')
-        .gte('scan_time', `${today}T00:00:00`)
-        .lte('scan_time', `${today}T23:59:59`)
-        .order('scan_time', { ascending: false })
-        .limit(50);
-
-      if (checkIns) {
-        const mappedEvents: LiveEvent[] = checkIns.map((ci: Record<string, unknown>) => ({
-          checkIn: ci as unknown as CheckIn,
-          profile: (ci as Record<string, unknown>).profiles as Profile | null,
-          timestamp: (ci as Record<string, unknown>).scan_time as string,
-        }));
-        setEvents(mappedEvents);
-        setTodayCount(checkIns.filter((c: Record<string, unknown>) => c.status === 'success').length);
-      }
+    // Load recent check-ins
+    async function loadRecent() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const {data} = await supabase.from('check_ins').select('*, profiles(name,employee_id)').gte('scan_time',today.toISOString()).order('scan_time',{ascending:false}).limit(50);
+      if (data) setEvents(data);
     }
-
-    fetchExisting();
-
+    loadRecent();
     // Subscribe to realtime
-    const channel = supabase
-      .channel('check_ins_realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'check_ins',
-        },
-        async (payload) => {
-          const newCheckIn = payload.new as CheckIn;
-
-          // Fetch the profile for this check-in
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', newCheckIn.user_id)
-            .single();
-
-          const newEvent: LiveEvent = {
-            checkIn: newCheckIn,
-            profile: profile as Profile | null,
-            timestamp: newCheckIn.scan_time,
-          };
-
-          setEvents((prev) => [newEvent, ...prev].slice(0, 100));
-
-          if (newCheckIn.status === 'success') {
-            setTodayCount((prev) => prev + 1);
-          }
-        }
-      )
-      .subscribe((status) => {
-        setConnected(status === 'SUBSCRIBED');
+    const channel = supabase.channel('check_ins_realtime').on('postgres_changes',{event:'INSERT',schema:'public',table:'check_ins'},(payload) => {
+      const newEvent = payload.new as CheckIn;
+      // Fetch profile name
+      supabase.from('profiles').select('name,employee_id').eq('id',newEvent.user_id).single().then(({data}) => {
+        if(data) newEvent.profiles = data as any;
+        setEvents(prev => [newEvent,...prev].slice(0,50));
       });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    }).subscribe((status) => { setConnected(status === 'SUBSCRIBED'); });
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success': return <CheckCircle2 className="w-5 h-5 text-[var(--success)]" />;
-      case 'duplicate': return <AlertTriangle className="w-5 h-5 text-[var(--warning)]" />;
-      default: return <XCircle className="w-5 h-5 text-[var(--error)]" />;
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'success': return 'สำเร็จ';
-      case 'duplicate': return 'ซ้ำ';
-      default: return 'ผิดพลาด';
-    }
-  };
-
-  const getStatusBg = (status: string) => {
-    switch (status) {
-      case 'success': return '#E8F5E9';
-      case 'duplicate': return '#FFF8E1';
-      default: return '#FFEBEE';
-    }
-  };
-
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--on-surface)]">ตรวจสอบแบบเรียลไทม์</h1>
-          <p className="text-sm text-[var(--on-surface-variant)]">Real-time Monitoring Board</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: connected ? '#E8F5E9' : '#FFEBEE' }}>
-            <Wifi className={`w-4 h-4 ${connected ? 'text-[var(--success)]' : 'text-[var(--error)]'}`} />
-            <span className={`text-xs font-medium ${connected ? 'text-[var(--success)]' : 'text-[var(--error)]'}`}>
-              {connected ? 'เชื่อมต่อแล้ว' : 'ไม่ได้เชื่อมต่อ'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: 'var(--primary-fixed)' }}>
-            <Users className="w-4 h-4 text-[var(--primary)]" />
-            <span className="text-xs font-medium text-[var(--primary)]">วันนี้: {todayCount} คน</span>
-          </div>
+        <div><h1 className="text-2xl font-bold" style={{color:'var(--on-surface)'}}>ติดตามแบบ Real-time</h1><p className="text-sm mt-1" style={{color:'var(--on-surface-variant)'}}>การลงเวลาวันนี้แบบสด</p></div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium" style={{background:connected?'#e8f5e9':'var(--error-container)',color:connected?'var(--success-green)':'var(--error-red)'}}>
+          {connected?<Wifi className="w-3 h-3"/>:<WifiOff className="w-3 h-3"/>}{connected?'เชื่อมต่อแล้ว':'กำลังเชื่อมต่อ...'}
         </div>
       </div>
-
-      {/* Live Feed */}
-      <div className="glass-card overflow-hidden">
-        <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--outline-variant)' }}>
-          <Activity className="w-4 h-4 text-[var(--primary)]" />
-          <h3 className="text-sm font-bold text-[var(--on-surface)]">กิจกรรมล่าสุด</h3>
-          <div className={`w-2 h-2 rounded-full ${connected ? 'bg-[var(--success)] animate-pulse' : 'bg-[var(--error)]'}`} />
-        </div>
-
-        <div ref={feedRef} className="max-h-[calc(100vh-220px)] overflow-y-auto">
-          {events.length === 0 ? (
-            <div className="py-16 text-center">
-              <Activity className="w-12 h-12 mx-auto mb-3 text-[var(--outline-variant)]" />
-              <p className="text-sm text-[var(--on-surface-variant)]">ยังไม่มีกิจกรรมวันนี้</p>
-              <p className="text-xs text-[var(--outline)] mt-1">รอการสแกนใบหน้าจากจุดลงทะเบียน</p>
-            </div>
-          ) : (
-            <div className="divide-y" style={{ borderColor: 'var(--surface-container)' }}>
-              {events.map((event, idx) => (
-                <div
-                  key={`${event.checkIn.id}-${idx}`}
-                  className="px-5 py-3 flex items-center gap-4 hover:bg-[var(--surface-container)] transition-colors live-feed-item"
-                >
-                  {/* Status Icon */}
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: getStatusBg(event.checkIn.status) }}
-                  >
-                    {getStatusIcon(event.checkIn.status)}
-                  </div>
-
-                  {/* User Info */}
+      <div className="rounded-2xl overflow-hidden" style={{background:'var(--surface-container-lowest)',border:'1px solid var(--outline-variant)'}}>
+        <div className="p-4 border-b flex items-center gap-2" style={{borderColor:'var(--outline-variant)'}}><Activity className="w-4 h-4" style={{color:'var(--primary)'}}/><span className="text-sm font-bold" style={{color:'var(--on-surface)'}}>Live Feed</span><span className="ml-auto text-xs px-2 py-0.5 rounded-full" style={{background:'var(--primary-fixed)',color:'var(--on-primary-fixed)'}}>{events.length} รายการ</span></div>
+        <div className="max-h-[600px] overflow-y-auto divide-y" style={{borderColor:'var(--outline-variant)'}}>
+          <AnimatePresence>
+            {events.length === 0 ? (
+              <div className="p-12 text-center text-sm" style={{color:'var(--on-surface-variant)'}}>ยังไม่มีการลงเวลาวันนี้</div>
+            ) : events.map((e, i) => {
+              const session = getSessionById(e.session_number);
+              return (
+                <motion.div key={e.id || i} initial={{opacity:0,x:-20}} animate={{opacity:1,x:0}} className="flex items-center gap-4 p-4 hover:bg-black/[0.02] transition-colors">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0" style={{background:'var(--primary-fixed)',color:'var(--on-primary-fixed)'}}>{e.profiles?.name?.[0] || '?'}</div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--on-surface)] truncate">
-                      {event.profile?.full_name || 'ไม่ทราบชื่อ'}
-                    </p>
-                    <p className="text-xs text-[var(--on-surface-variant)]">
-                      {event.profile?.student_id || '—'} • {getSessionById(event.checkIn.session_number)?.labelTh || `รอบ ${event.checkIn.session_number}`}
-                    </p>
+                    <p className="font-medium text-sm truncate" style={{color:'var(--on-surface)'}}>{e.profiles?.name || 'Unknown'}</p>
+                    <p className="text-xs" style={{color:'var(--on-surface-variant)'}}>{session?.labelTh || `รอบ ${e.session_number}`}</p>
                   </div>
-
-                  {/* Status Badge */}
-                  <div
-                    className="px-2.5 py-1 rounded-full text-xs font-medium"
-                    style={{
-                      background: getStatusBg(event.checkIn.status),
-                      color: event.checkIn.status === 'success' ? 'var(--success)' : event.checkIn.status === 'duplicate' ? 'var(--warning)' : 'var(--error)',
-                    }}
-                  >
-                    {getStatusLabel(event.checkIn.status)}
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-medium" style={{color:'var(--on-surface)'}}>{formatScanTime(e.scan_time)}</p>
+                    <div className="flex items-center gap-1 text-xs mt-0.5" style={{color:'var(--success-green)'}}><CheckCircle2 className="w-3 h-3"/>สำเร็จ</div>
                   </div>
-
-                  {/* Time */}
-                  <div className="flex items-center gap-1 text-xs text-[var(--on-surface-variant)]">
-                    <Clock className="w-3.5 h-3.5" />
-                    {formatScanTime(event.checkIn.scan_time)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       </div>
     </div>

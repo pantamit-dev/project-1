@@ -1,292 +1,100 @@
 'use client';
-
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { createClient } from '@/lib/client';
-import { getSessionStatuses, getCurrentSession, SESSIONS } from '@/lib/session-utils';
-import type { Session } from '@/lib/types/database';
-import {
-  Users,
-  UserCheck,
-  Clock,
-  Activity,
-  TrendingUp,
-  Scan,
-  CalendarDays,
-} from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+import { getCurrentSession, getSessionStatuses, getTodayRange, SESSIONS } from '@/lib/session-utils';
+import { Users, CheckCircle2, Clock, TrendingUp, UserCheck, UserX } from 'lucide-react';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js';
 
-interface Stats {
-  totalUsers: number;
-  approvedUsers: number;
-  pendingUsers: number;
-  todayCheckIns: number;
-  sessionCounts: { session: number; count: number }[];
-}
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-export default function AdminDashboardPage() {
-  const [stats, setStats] = useState<Stats>({
-    totalUsers: 0,
-    approvedUsers: 0,
-    pendingUsers: 0,
-    todayCheckIns: 0,
-    sessionCounts: [],
-  });
-  const [sessionStatuses, setSessionStatuses] = useState(getSessionStatuses());
-  const [currentSession, setCurrentSession] = useState<Session | null>(getCurrentSession());
-  const [time, setTime] = useState(new Date());
-  const [weeklyData, setWeeklyData] = useState<{ day: string; count: number }[]>([]);
-  const [loading, setLoading] = useState(true);
+const fadeIn = { initial:{opacity:0,y:20}, animate:{opacity:1,y:0} };
 
-  // Clock
+export default function AdminDashboard() {
+  const [stats, setStats] = useState({ totalUsers:0, approved:0, pending:0, blocked:0, todayCheckins:0, sessionCounts:[0,0,0] });
+  const [weeklyData, setWeeklyData] = useState<number[]>([0,0,0,0,0,0,0]);
+  const supabase = createClient();
+  const currentSession = getCurrentSession();
+  const sessionStatuses = getSessionStatuses();
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      setTime(now);
-      setCurrentSession(getCurrentSession(now));
-      setSessionStatuses(getSessionStatuses(now));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Fetch stats
-  useEffect(() => {
-    async function fetchStats() {
-      const supabase = createClient();
-      const today = new Date().toISOString().split('T')[0];
-
-      // Total users
-      const { count: totalUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
-
-      // Approved users
-      const { count: approvedUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'approved');
-
-      // Pending users
-      const { count: pendingUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-
-      // Today's check-ins
-      const { data: todayCheckins } = await supabase
-        .from('check_ins')
-        .select('session_number')
-        .eq('status', 'success')
-        .gte('scan_time', `${today}T00:00:00`)
-        .lte('scan_time', `${today}T23:59:59`);
-
-      // Count per session
-      const sessionCounts = SESSIONS.map((s) => ({
-        session: s.id,
-        count: todayCheckins?.filter((c) => c.session_number === s.id).length || 0,
-      }));
-
-      // Weekly data (last 7 days)
-      const weekDays = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-
-        const { count } = await supabase
-          .from('check_ins')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'success')
-          .gte('scan_time', `${dateStr}T00:00:00`)
-          .lte('scan_time', `${dateStr}T23:59:59`);
-
-        weekDays.push({
-          day: d.toLocaleDateString('th-TH', { weekday: 'short' }),
-          count: count || 0,
-        });
+    async function load() {
+      const {count:total} = await supabase.from('profiles').select('*',{count:'exact',head:true});
+      const {count:approved} = await supabase.from('profiles').select('*',{count:'exact',head:true}).eq('status','approved');
+      const {count:pending} = await supabase.from('profiles').select('*',{count:'exact',head:true}).eq('status','pending');
+      const {count:blocked} = await supabase.from('profiles').select('*',{count:'exact',head:true}).eq('status','blocked');
+      const {start,end} = getTodayRange();
+      const {count:todayCheckins} = await supabase.from('check_ins').select('*',{count:'exact',head:true}).gte('scan_time',start).lt('scan_time',end);
+      const sc = [0,0,0];
+      for (let i=1;i<=3;i++){
+        const {count} = await supabase.from('check_ins').select('*',{count:'exact',head:true}).eq('session_number',i).gte('scan_time',start).lt('scan_time',end);
+        sc[i-1] = count||0;
       }
-
-      setStats({
-        totalUsers: totalUsers || 0,
-        approvedUsers: approvedUsers || 0,
-        pendingUsers: pendingUsers || 0,
-        todayCheckIns: todayCheckins?.length || 0,
-        sessionCounts,
-      });
-      setWeeklyData(weekDays);
-      setLoading(false);
+      setStats({totalUsers:total||0,approved:approved||0,pending:pending||0,blocked:blocked||0,todayCheckins:todayCheckins||0,sessionCounts:sc});
+      // Weekly
+      const days:number[] = [];
+      for(let d=6;d>=0;d--){
+        const day = new Date(); day.setDate(day.getDate()-d); day.setHours(0,0,0,0);
+        const next = new Date(day); next.setDate(next.getDate()+1);
+        const {count:c} = await supabase.from('check_ins').select('*',{count:'exact',head:true}).gte('scan_time',day.toISOString()).lt('scan_time',next.toISOString());
+        days.push(c||0);
+      }
+      setWeeklyData(days);
     }
-
-    fetchStats();
-
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
+    load();
   }, []);
 
-  const PIE_COLORS = ['#005EB8', '#4285F4', '#534062'];
+  const dayLabels = Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));return d.toLocaleDateString('th-TH',{weekday:'short'});});
+
+  const statCards = [
+    {label:'ผู้ใช้ทั้งหมด',value:stats.totalUsers,icon:Users,color:'var(--primary)',bg:'var(--primary-fixed)'},
+    {label:'อนุมัติแล้ว',value:stats.approved,icon:UserCheck,color:'var(--success-green)',bg:'#e8f5e9'},
+    {label:'รอดำเนินการ',value:stats.pending,icon:Clock,color:'#e65100',bg:'#fff3e0'},
+    {label:'ลงเวลาวันนี้',value:stats.todayCheckins,icon:CheckCircle2,color:'var(--primary)',bg:'var(--primary-fixed)'},
+  ];
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--on-surface)]">ภาพรวมแดชบอร์ด</h1>
-          <p className="text-sm text-[var(--on-surface-variant)]">Dashboard Overview</p>
-        </div>
-        <div className="text-right">
-          <div className="text-2xl font-bold font-mono text-[var(--primary)]">
-            {time.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-          </div>
-          <div className="text-xs text-[var(--on-surface-variant)]">
-            {time.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {[
-          { label: 'ผู้ใช้ทั้งหมด', value: stats.totalUsers, icon: Users, color: '#005EB8', bg: '#d6e3ff' },
-          { label: 'อนุมัติแล้ว', value: stats.approvedUsers, icon: UserCheck, color: '#2E7D32', bg: '#E8F5E9' },
-          { label: 'เข้างานวันนี้', value: stats.todayCheckIns, icon: Scan, color: '#4285F4', bg: '#E3F2FD' },
-          { label: 'รอตรวจสอบ', value: stats.pendingUsers, icon: Clock, color: '#F57F17', bg: '#FFF8E1' },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="stats-card glass-card p-5 flex items-center gap-4"
-          >
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: card.bg }}
-            >
-              <card.icon className="w-6 h-6" style={{ color: card.color }} />
+    <div className="space-y-8">
+      <div><h1 className="text-2xl font-bold" style={{color:'var(--on-surface)'}}>ภาพรวมแดชบอร์ด</h1><p className="text-sm mt-1" style={{color:'var(--on-surface-variant)'}}>สรุปข้อมูลระบบ Face Scan Check-in</p></div>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((card,i) => (
+          <motion.div key={i} {...fadeIn} transition={{delay:i*0.1}} className="p-5 rounded-2xl" style={{background:'var(--surface-container-lowest)',border:'1px solid var(--outline-variant)'}}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background:card.bg}}><card.icon className="w-5 h-5" style={{color:card.color}}/></div>
+              <TrendingUp className="w-4 h-4" style={{color:'var(--on-surface-variant)'}}/>
             </div>
-            <div>
-              <p className="text-xs text-[var(--on-surface-variant)] font-medium">{card.label}</p>
-              <p className="text-2xl font-bold text-[var(--on-surface)]">
-                {loading ? '—' : card.value.toLocaleString()}
-              </p>
-            </div>
-          </div>
+            <p className="text-2xl font-bold" style={{color:'var(--on-surface)'}}>{card.value}</p>
+            <p className="text-xs mt-1" style={{color:'var(--on-surface-variant)'}}>{card.label}</p>
+          </motion.div>
         ))}
       </div>
-
-      {/* Session Timeline */}
-      <div className="glass-card p-5">
-        <h3 className="text-sm font-bold text-[var(--on-surface)] mb-4 flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-[var(--primary)]" />
-          สถานะรอบเวลาเข้างาน
-        </h3>
-        <div className="flex gap-3">
-          {sessionStatuses.map((s) => {
-            const count = stats.sessionCounts.find((sc) => sc.session === s.id)?.count || 0;
-            return (
-              <div
-                key={s.id}
-                className={`flex-1 p-4 rounded-xl text-center transition-all ${
-                  s.isActive ? 'session-active' : s.isPast ? 'session-past' : 'session-upcoming'
-                }`}
-              >
-                <p className="text-xs font-medium opacity-80 mb-1">{s.labelTh}</p>
-                <p className="text-lg font-bold">{s.start} - {s.end}</p>
-                <div className="mt-2 flex items-center justify-center gap-1">
-                  <Users className="w-3.5 h-3.5" />
-                  <span className="text-sm font-medium">{count} คน</span>
-                </div>
-                {s.isActive && (
-                  <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/20 text-xs">
-                    <Activity className="w-3 h-3" />
-                    กำลังดำเนินการ
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {/* Session Status */}
+      <motion.div {...fadeIn} transition={{delay:0.4}} className="p-6 rounded-2xl" style={{background:'var(--surface-container-lowest)',border:'1px solid var(--outline-variant)'}}>
+        <h2 className="font-bold text-sm mb-4 flex items-center gap-2" style={{color:'var(--on-surface)'}}><Clock className="w-4 h-4"/>สถานะรอบเวลา</h2>
+        <div className="grid grid-cols-3 gap-3">
+          {sessionStatuses.map(({session:s,status},i) => (
+            <div key={s.id} className={`p-4 rounded-xl text-center ${status==='active'?'session-active':status==='upcoming'?'session-upcoming':'session-completed'}`}>
+              <p className="font-bold text-lg">{stats.sessionCounts[i]}</p>
+              <p className="text-xs mt-1">{s.labelTh}</p>
+              <p className="text-xs opacity-70">{s.start}-{s.end}</p>
+            </div>
+          ))}
         </div>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Weekly Bar Chart */}
-        <div className="xl:col-span-2 glass-card p-5">
-          <h3 className="text-sm font-bold text-[var(--on-surface)] mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-[var(--primary)]" />
-            สถิติเข้างานรายสัปดาห์
-          </h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" opacity={0.5} />
-                <XAxis dataKey="day" tick={{ fontSize: 12, fill: 'var(--on-surface-variant)' }} />
-                <YAxis tick={{ fontSize: 12, fill: 'var(--on-surface-variant)' }} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--surface-container-lowest)',
-                    border: '1px solid var(--outline-variant)',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                  }}
-                />
-                <Bar dataKey="count" fill="#005EB8" radius={[4, 4, 0, 0]} name="เข้างาน" />
-              </BarChart>
-            </ResponsiveContainer>
+      </motion.div>
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <motion.div {...fadeIn} transition={{delay:0.5}} className="p-6 rounded-2xl" style={{background:'var(--surface-container-lowest)',border:'1px solid var(--outline-variant)'}}>
+          <h2 className="font-bold text-sm mb-4" style={{color:'var(--on-surface)'}}>การลงเวลา 7 วันล่าสุด</h2>
+          <Bar data={{labels:dayLabels,datasets:[{label:'จำนวนครั้ง',data:weeklyData,backgroundColor:'rgba(0,94,184,0.7)',borderRadius:8}]}} options={{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}}/>
+        </motion.div>
+        <motion.div {...fadeIn} transition={{delay:0.6}} className="p-6 rounded-2xl" style={{background:'var(--surface-container-lowest)',border:'1px solid var(--outline-variant)'}}>
+          <h2 className="font-bold text-sm mb-4" style={{color:'var(--on-surface)'}}>สถานะผู้ใช้</h2>
+          <div className="max-w-[250px] mx-auto">
+            <Doughnut data={{labels:['อนุมัติ','รอดำเนินการ','ระงับ'],datasets:[{data:[stats.approved,stats.pending,stats.blocked],backgroundColor:['#2E7D32','#e65100','#B00020'],borderWidth:0}]}} options={{cutout:'65%',plugins:{legend:{position:'bottom'}}}}/>
           </div>
-        </div>
-
-        {/* Session Pie Chart */}
-        <div className="glass-card p-5">
-          <h3 className="text-sm font-bold text-[var(--on-surface)] mb-4 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[var(--primary)]" />
-            สัดส่วนรายรอบ
-          </h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={stats.sessionCounts.map((sc) => ({
-                    name: SESSIONS.find((s) => s.id === sc.session)?.labelTh || `รอบ ${sc.session}`,
-                    value: sc.count,
-                  }))}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {stats.sessionCounts.map((_, idx) => (
-                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-2 space-y-1">
-            {stats.sessionCounts.map((sc, idx) => (
-              <div key={sc.session} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ background: PIE_COLORS[idx] }} />
-                  <span className="text-[var(--on-surface-variant)]">
-                    {SESSIONS.find((s) => s.id === sc.session)?.labelTh}
-                  </span>
-                </div>
-                <span className="font-medium text-[var(--on-surface)]">{sc.count} คน</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );

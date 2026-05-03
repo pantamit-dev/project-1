@@ -1,0 +1,10 @@
+
+
+
+#ให้ใช้ design system จาก mcp site:mcp.npmjs.com project name "FaceScan design-system"  นี้ในการพัฒนา 
+
+UI ของ website
+#component tailwind css  
+#Animation using framer-motion 
+#Notification using react-hot-toast
+#chart using chart.js
